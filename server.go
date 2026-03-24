@@ -74,6 +74,7 @@ type response struct {
 	tsigProvider   TsigProvider
 	udp            net.PacketConn // i/o connection if UDP was used
 	tcp            net.Conn       // i/o connection if TCP was used
+	tcpMu          *sync.Mutex    // protects concurrent TCP writes (pipelining)
 	udpSession     *SessionUDP    // oob data to get egress interface right
 	pcSession      net.Addr       // address to use when writing to a generic net.PacketConn
 	writer         Writer         // writer to output the raw DNS bits
@@ -558,13 +559,13 @@ func (srv *Server) serveUDP(l net.PacketConn) error {
 }
 
 // Serve a new TCP connection.
+//
+// Queries are processed concurrently (RFC 7766 pipelining): the read
+// loop spawns a goroutine for each incoming query, allowing multiple
+// handlers to run in parallel on the same connection. Responses are
+// serialized by a shared mutex on the TCP writer.
 func (srv *Server) serveTCPConn(wg *sync.WaitGroup, rw net.Conn) {
-	w := &response{tsigProvider: srv.tsigProvider(), tcp: rw}
-	if srv.DecorateWriter != nil {
-		w.writer = srv.DecorateWriter(w)
-	} else {
-		w.writer = w
-	}
+	tcpMu := &sync.Mutex{} // shared across all pipelined responses
 
 	reader := Reader(defaultReader{srv})
 	if srv.DecorateReader != nil {
@@ -583,30 +584,56 @@ func (srv *Server) serveTCPConn(wg *sync.WaitGroup, rw net.Conn) {
 		limit = maxTCPQueries
 	}
 
+	var queryWg sync.WaitGroup
+	closed := false
+	hijacked := false
+
 	for q := 0; (q < limit || limit == -1) && srv.isStarted(); q++ {
-		m, err := reader.ReadTCP(w.tcp, timeout)
+		m, err := reader.ReadTCP(rw, timeout)
 		if err != nil {
-			// TODO(tmthrgd): handle error
 			break
 		}
-		srv.serveDNS(m, w)
-		if w.closed {
-			break // Close() was called
+
+		// Each pipelined query gets its own response writer sharing
+		// the TCP connection and write mutex. This allows concurrent
+		// handlers to write responses without interleaving.
+		w := &response{tsigProvider: srv.tsigProvider(), tcp: rw, tcpMu: tcpMu}
+		if srv.DecorateWriter != nil {
+			w.writer = srv.DecorateWriter(w)
+		} else {
+			w.writer = w
 		}
-		if w.hijacked {
-			break // client will call Close() themselves
+
+		queryWg.Add(1)
+		go func() {
+			defer queryWg.Done()
+			srv.serveDNS(m, w)
+			if w.closed {
+				closed = true
+			}
+			if w.hijacked {
+				hijacked = true
+			}
+		}()
+
+		if closed || hijacked {
+			break
 		}
+
 		// The first read uses the read timeout, the rest use the
 		// idle timeout.
 		timeout = idleTimeout
 	}
 
-	if !w.hijacked {
-		w.Close()
+	// Wait for all pipelined handlers to complete before closing.
+	queryWg.Wait()
+
+	if !hijacked {
+		rw.Close()
 	}
 
 	srv.lock.Lock()
-	delete(srv.conns, w.tcp)
+	delete(srv.conns, rw)
 	srv.lock.Unlock()
 
 	wg.Done()
@@ -788,6 +815,11 @@ func (w *response) Write(m []byte) (int, error) {
 		msg := make([]byte, 2+len(m))
 		binary.BigEndian.PutUint16(msg, uint16(len(m)))
 		copy(msg[2:], m)
+		// Mutex protects concurrent TCP writes from pipelined handlers.
+		if w.tcpMu != nil {
+			w.tcpMu.Lock()
+			defer w.tcpMu.Unlock()
+		}
 		return w.tcp.Write(msg)
 	default:
 		panic("dns: internal error: udp and tcp both nil")
