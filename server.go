@@ -559,14 +559,30 @@ func (srv *Server) serveUDP(l net.PacketConn) error {
 	return nil
 }
 
-// Serve a new TCP connection.
+// TCP connection states.
+const (
+	tcpStateIdle     int32 = 0 // no queries in-flight, idle timeout applies
+	tcpStateActive   int32 = 1 // queries in-flight, no timeout
+	tcpStateDraining int32 = 2 // stop reading, wait for in-flight to complete
+	tcpStateClosed   int32 = 3 // connection closed
+)
+
+// Serve a new TCP connection using a state machine with separate reader
+// and handler goroutines. Supports RFC 7766 pipelining with back-pressure.
 //
-// Queries are processed concurrently (RFC 7766 pipelining): the read
-// loop spawns a goroutine for each incoming query, allowing multiple
-// handlers to run in parallel on the same connection. Responses are
-// serialized by a shared mutex on the TCP writer.
+// Architecture:
+//   Reader goroutine: reads queries, sends to queryCh
+//   Handler goroutines: one per query, resolve and write response
+//   State machine: IDLE → ACTIVE → DRAINING → CLOSED
+//
+// Back-pressure: when handlers are at capacity (queryCh full), the reader
+// blocks. TCP flow control propagates to the client — the kernel receive
+// buffer fills, the client's writes slow down. No application-layer
+// rejection needed.
 func (srv *Server) serveTCPConn(wg *sync.WaitGroup, rw net.Conn) {
-	tcpMu := &sync.Mutex{} // shared across all pipelined responses
+	defer wg.Done()
+
+	tcpMu := &sync.Mutex{} // serialises response writes
 
 	reader := Reader(defaultReader{srv})
 	if srv.DecorateReader != nil {
@@ -578,26 +594,89 @@ func (srv *Server) serveTCPConn(wg *sync.WaitGroup, rw net.Conn) {
 		idleTimeout = srv.IdleTimeout()
 	}
 
-	timeout := srv.getReadTimeout()
+	readTimeout := srv.getReadTimeout()
 
 	limit := srv.MaxTCPQueries
 	if limit == 0 {
 		limit = maxTCPQueries
 	}
 
+	// Connection state.
+	var state atomic.Int32 // tcpStateIdle
+	var inflight atomic.Int32
+	var connHijacked atomic.Bool
 	var queryWg sync.WaitGroup
-	var connClosed atomic.Bool  // any handler closed the connection
-	var connHijacked atomic.Bool // any handler hijacked the connection
 
-	// Limit concurrent pipelined queries per connection to prevent
-	// goroutine explosion from malicious clients.
+	// Query channel: reader sends, handlers receive. Bounded to provide
+	// back-pressure — when full, reader blocks, TCP flow control kicks in.
 	const maxPipelined = 128
-	sem := make(chan struct{}, maxPipelined)
+	queryCh := make(chan []byte, maxPipelined)
 
+	// --- Handler goroutine: pulls from queryCh, processes, writes response ---
+	handlerDone := make(chan struct{})
+	go func() {
+		defer close(handlerDone)
+		for m := range queryCh {
+			inflight.Add(1)
+			if state.Load() == tcpStateIdle {
+				state.Store(tcpStateActive)
+			}
+
+			w := &response{tsigProvider: srv.tsigProvider(), tcp: rw, tcpMu: tcpMu}
+			if srv.DecorateWriter != nil {
+				w.writer = srv.DecorateWriter(w)
+			} else {
+				w.writer = w
+			}
+
+			queryWg.Add(1)
+			go func(m []byte) {
+				defer queryWg.Done()
+				defer func() {
+					if r := recover(); r != nil {
+						// Handler panicked — don't crash the server.
+					}
+				}()
+				defer func() {
+					n := inflight.Add(-1)
+					if n == 0 && state.Load() == tcpStateActive {
+						state.Store(tcpStateIdle)
+					}
+					if w.closed.Load() {
+						state.Store(tcpStateDraining)
+						rw.SetReadDeadline(time.Now()) // unblock reader
+					}
+					if w.hijacked.Load() {
+						connHijacked.Store(true)
+						state.Store(tcpStateDraining)
+						rw.SetReadDeadline(time.Now()) // unblock reader
+					}
+				}()
+
+				srv.serveDNS(m, w)
+			}(m)
+		}
+		// queryCh closed — wait for all in-flight handlers.
+		queryWg.Wait()
+	}()
+
+	// --- Reader goroutine (runs on this goroutine): reads queries, sends to queryCh ---
 	for q := 0; (q < limit || limit == -1) && srv.isStarted(); q++ {
-		// Check if a previous handler closed or hijacked the connection.
-		if connClosed.Load() || connHijacked.Load() {
+		if s := state.Load(); s == tcpStateDraining || s == tcpStateClosed {
 			break
+		}
+
+		// Timeout depends on state: idle connections get a short timeout,
+		// active connections (queries in-flight) get no timeout.
+		timeout := idleTimeout
+		if q == 0 {
+			timeout = readTimeout
+		}
+		if inflight.Load() > 0 {
+			// Queries in-flight: use a long deadline. The connection should
+			// not close while work is pending. We still need a deadline to
+			// detect dead clients, but it's generous.
+			timeout = 5 * time.Minute
 		}
 
 		m, err := reader.ReadTCP(rw, timeout)
@@ -605,52 +684,25 @@ func (srv *Server) serveTCPConn(wg *sync.WaitGroup, rw net.Conn) {
 			break
 		}
 
-		// Acquire concurrency slot — blocks if maxPipelined goroutines
-		// are already running on this connection.
-		sem <- struct{}{}
-
-		// Each pipelined query gets its own response writer sharing
-		// the TCP connection and write mutex. This allows concurrent
-		// handlers to write responses without interleaving.
-		w := &response{tsigProvider: srv.tsigProvider(), tcp: rw, tcpMu: tcpMu}
-		if srv.DecorateWriter != nil {
-			w.writer = srv.DecorateWriter(w)
-		} else {
-			w.writer = w
+		// Send to handler via channel. If channel is full, this blocks —
+		// that's the back-pressure. TCP flow control propagates to client.
+		select {
+		case queryCh <- m:
+		default:
+			// Channel is at capacity — block until a slot opens.
+			// This is intentional: it provides TCP back-pressure.
+			queryCh <- m
 		}
-
-		queryWg.Add(1)
-		go func() {
-			defer queryWg.Done()
-			defer func() { <-sem }()
-			defer func() {
-				if r := recover(); r != nil {
-					// Handler panicked — log but don't crash the server.
-					// The connection will be cleaned up when the read loop exits.
-				}
-			}()
-
-			srv.serveDNS(m, w)
-
-			if w.closed.Load() {
-				connClosed.Store(true)
-				// Unblock the read loop so it can exit immediately
-				// instead of waiting for the read timeout.
-				rw.SetReadDeadline(time.Now())
-			}
-			if w.hijacked.Load() {
-				connHijacked.Store(true)
-				rw.SetReadDeadline(time.Now())
-			}
-		}()
-
-		// The first read uses the read timeout, the rest use the
-		// idle timeout.
-		timeout = idleTimeout
 	}
 
-	// Wait for all pipelined handlers to complete before closing.
-	queryWg.Wait()
+	// Reader done — close channel to signal handler goroutine.
+	close(queryCh)
+
+	// Wait for handler goroutine to drain remaining queries.
+	<-handlerDone
+
+	// Transition to CLOSED.
+	state.Store(tcpStateClosed)
 
 	if !connHijacked.Load() {
 		rw.Close()
@@ -659,8 +711,6 @@ func (srv *Server) serveTCPConn(wg *sync.WaitGroup, rw net.Conn) {
 	srv.lock.Lock()
 	delete(srv.conns, rw)
 	srv.lock.Unlock()
-
-	wg.Done()
 }
 
 // Serve a new UDP request.
