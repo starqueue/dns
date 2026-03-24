@@ -11,6 +11,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -66,8 +67,8 @@ type ConnectionStater interface {
 }
 
 type response struct {
-	closed         bool // connection has been closed
-	hijacked       bool // connection has been hijacked by handler
+	closed         atomic.Bool // connection has been closed (atomic for pipelining safety)
+	hijacked       atomic.Bool // connection has been hijacked by handler (atomic)
 	tsigTimersOnly bool
 	tsigStatus     error
 	tsigRequestMAC string
@@ -585,14 +586,28 @@ func (srv *Server) serveTCPConn(wg *sync.WaitGroup, rw net.Conn) {
 	}
 
 	var queryWg sync.WaitGroup
-	closed := false
-	hijacked := false
+	var connClosed atomic.Bool  // any handler closed the connection
+	var connHijacked atomic.Bool // any handler hijacked the connection
+
+	// Limit concurrent pipelined queries per connection to prevent
+	// goroutine explosion from malicious clients.
+	const maxPipelined = 128
+	sem := make(chan struct{}, maxPipelined)
 
 	for q := 0; (q < limit || limit == -1) && srv.isStarted(); q++ {
+		// Check if a previous handler closed or hijacked the connection.
+		if connClosed.Load() || connHijacked.Load() {
+			break
+		}
+
 		m, err := reader.ReadTCP(rw, timeout)
 		if err != nil {
 			break
 		}
+
+		// Acquire concurrency slot — blocks if maxPipelined goroutines
+		// are already running on this connection.
+		sem <- struct{}{}
 
 		// Each pipelined query gets its own response writer sharing
 		// the TCP connection and write mutex. This allows concurrent
@@ -607,18 +622,27 @@ func (srv *Server) serveTCPConn(wg *sync.WaitGroup, rw net.Conn) {
 		queryWg.Add(1)
 		go func() {
 			defer queryWg.Done()
+			defer func() { <-sem }()
+			defer func() {
+				if r := recover(); r != nil {
+					// Handler panicked — log but don't crash the server.
+					// The connection will be cleaned up when the read loop exits.
+				}
+			}()
+
 			srv.serveDNS(m, w)
-			if w.closed {
-				closed = true
+
+			if w.closed.Load() {
+				connClosed.Store(true)
+				// Unblock the read loop so it can exit immediately
+				// instead of waiting for the read timeout.
+				rw.SetReadDeadline(time.Now())
 			}
-			if w.hijacked {
-				hijacked = true
+			if w.hijacked.Load() {
+				connHijacked.Store(true)
+				rw.SetReadDeadline(time.Now())
 			}
 		}()
-
-		if closed || hijacked {
-			break
-		}
 
 		// The first read uses the read timeout, the rest use the
 		// idle timeout.
@@ -628,7 +652,7 @@ func (srv *Server) serveTCPConn(wg *sync.WaitGroup, rw net.Conn) {
 	// Wait for all pipelined handlers to complete before closing.
 	queryWg.Wait()
 
-	if !hijacked {
+	if !connHijacked.Load() {
 		rw.Close()
 	}
 
@@ -772,7 +796,7 @@ func (srv *Server) readPacketConn(conn net.PacketConn, timeout time.Duration) ([
 
 // WriteMsg implements the ResponseWriter.WriteMsg method.
 func (w *response) WriteMsg(m *Msg) (err error) {
-	if w.closed {
+	if w.closed.Load() {
 		return &Error{err: "WriteMsg called after Close"}
 	}
 
@@ -797,7 +821,7 @@ func (w *response) WriteMsg(m *Msg) (err error) {
 
 // Write implements the ResponseWriter.Write method.
 func (w *response) Write(m []byte) (int, error) {
-	if w.closed {
+	if w.closed.Load() {
 		return 0, &Error{err: "Write called after Close"}
 	}
 
@@ -859,20 +883,30 @@ func (w *response) TsigStatus() error { return w.tsigStatus }
 func (w *response) TsigTimersOnly(b bool) { w.tsigTimersOnly = b }
 
 // Hijack implements the ResponseWriter.Hijack method.
-func (w *response) Hijack() { w.hijacked = true }
+func (w *response) Hijack() { w.hijacked.Store(true) }
 
-// Close implements the ResponseWriter.Close method
+// Close implements the ResponseWriter.Close method.
+// For TCP with pipelining (tcpMu != nil), Close marks the response
+// as closed but does NOT close the underlying TCP connection — that
+// is handled by serveTCPConn after all pipelined handlers complete.
+// This prevents one handler from closing the socket under other
+// concurrent handlers.
 func (w *response) Close() error {
-	if w.closed {
+	if w.closed.Load() {
 		return &Error{err: "connection already closed"}
 	}
-	w.closed = true
+	w.closed.Store(true)
 
 	switch {
 	case w.udp != nil:
 		// Can't close the udp conn, as that is actually the listener.
 		return nil
 	case w.tcp != nil:
+		if w.tcpMu != nil {
+			// Pipelined: don't close shared TCP connection.
+			// serveTCPConn closes it after all handlers complete.
+			return nil
+		}
 		return w.tcp.Close()
 	default:
 		panic("dns: internal error: udp and tcp both nil")
