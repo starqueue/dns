@@ -85,7 +85,7 @@ type response struct {
 func handleRefused(w ResponseWriter, r *Msg) {
 	m := new(Msg)
 	m.SetRcode(r, RcodeRefused)
-	w.WriteMsg(m)
+	_ = w.WriteMsg(m) // client may have disconnected
 }
 
 // HandleFailed returns a HandlerFunc that returns SERVFAIL for every request it gets.
@@ -94,7 +94,7 @@ func HandleFailed(w ResponseWriter, r *Msg) {
 	m := new(Msg)
 	m.SetRcode(r, RcodeServerFailure)
 	// does not matter if this write fails
-	w.WriteMsg(m)
+	_ = w.WriteMsg(m) // client may have disconnected
 }
 
 // ListenAndServe Starts a server on address and network specified Invoke handler
@@ -276,9 +276,10 @@ func (srv *Server) isStarted() bool {
 	return started
 }
 
-func makeUDPBuffer(size int) func() interface{} {
-	return func() interface{} {
-		return make([]byte, size)
+func makeUDPBuffer(size int) func() any {
+	return func() any {
+		b := make([]byte, size)
+		return &b
 	}
 }
 
@@ -355,7 +356,7 @@ func (srv *Server) ListenAndServe() error {
 		}
 		u := l.(*net.UDPConn)
 		if e := setUDPSocketOptions(u); e != nil {
-			u.Close()
+			_ = u.Close() // best effort: returning the original error
 			return e
 		}
 		srv.PacketConn = l
@@ -420,15 +421,15 @@ func (srv *Server) ShutdownContext(ctx context.Context) error {
 	srv.started = false
 
 	if srv.PacketConn != nil {
-		srv.PacketConn.SetReadDeadline(aLongTimeAgo) // Unblock reads
+		_ = srv.PacketConn.SetReadDeadline(aLongTimeAgo) // best-effort: Unblock reads
 	}
 
 	if srv.Listener != nil {
-		srv.Listener.Close()
+		_ = srv.Listener.Close() // best-effort: shutting down
 	}
 
 	for rw := range srv.conns {
-		rw.SetReadDeadline(aLongTimeAgo) // Unblock reads
+		_ = rw.SetReadDeadline(aLongTimeAgo) // best-effort: Unblock reads
 	}
 
 	srv.lock.Unlock()
@@ -445,7 +446,7 @@ func (srv *Server) ShutdownContext(ctx context.Context) error {
 	}
 
 	if srv.PacketConn != nil {
-		srv.PacketConn.Close()
+		_ = srv.PacketConn.Close() // best-effort: shutting down
 	}
 
 	return ctxErr
@@ -463,7 +464,7 @@ func (srv *Server) getReadTimeout() time.Duration {
 
 // serveTCP starts a TCP listener for the server.
 func (srv *Server) serveTCP(l net.Listener) error {
-	defer l.Close()
+	defer func() { _ = l.Close() }() // best-effort: shutting down
 
 	if srv.NotifyStartedFunc != nil {
 		srv.NotifyStartedFunc()
@@ -481,7 +482,11 @@ func (srv *Server) serveTCP(l net.Listener) error {
 			if !srv.isStarted() {
 				return nil
 			}
-			if neterr, ok := err.(net.Error); ok && neterr.Temporary() {
+			if errors.Is(err, net.ErrClosed) {
+				return nil
+			}
+			var neterr net.Error
+			if errors.As(err, &neterr) && neterr.Timeout() {
 				continue
 			}
 			return err
@@ -499,7 +504,7 @@ func (srv *Server) serveTCP(l net.Listener) error {
 
 // serveUDP starts a UDP listener for the server.
 func (srv *Server) serveUDP(l net.PacketConn) error {
-	defer l.Close()
+	defer func() { _ = l.Close() }() // best-effort: shutting down
 
 	reader := Reader(defaultReader{srv})
 	if srv.DecorateReader != nil {
@@ -540,14 +545,19 @@ func (srv *Server) serveUDP(l net.PacketConn) error {
 			if !srv.isStarted() {
 				return nil
 			}
-			if netErr, ok := err.(net.Error); ok && netErr.Temporary() {
+			if errors.Is(err, net.ErrClosed) {
+				return nil
+			}
+			var netErr net.Error
+			if errors.As(err, &netErr) && netErr.Timeout() {
 				continue
 			}
 			return err
 		}
 		if len(m) < headerSize {
 			if cap(m) == srv.UDPSize {
-				srv.udpPool.Put(m[:srv.UDPSize])
+				b := m[:srv.UDPSize]
+				srv.udpPool.Put(&b)
 			}
 			srv.MsgInvalidFunc(m, ErrShortRead)
 			continue
@@ -571,9 +581,10 @@ const (
 // and handler goroutines. Supports RFC 7766 pipelining with back-pressure.
 //
 // Architecture:
-//   Reader goroutine: reads queries, sends to queryCh
-//   Handler goroutines: one per query, resolve and write response
-//   State machine: IDLE → ACTIVE → DRAINING → CLOSED
+//
+//	Reader goroutine: reads queries, sends to queryCh
+//	Handler goroutines: one per query, resolve and write response
+//	State machine: IDLE → ACTIVE → DRAINING → CLOSED
 //
 // Back-pressure: when handlers are at capacity (queryCh full), the reader
 // blocks. TCP flow control propagates to the client — the kernel receive
@@ -632,11 +643,8 @@ func (srv *Server) serveTCPConn(wg *sync.WaitGroup, rw net.Conn) {
 			queryWg.Add(1)
 			go func(m []byte) {
 				defer queryWg.Done()
-				defer func() {
-					if r := recover(); r != nil {
-						// Handler panicked — don't crash the server.
-					}
-				}()
+				// Handler may panic — don't crash the server.
+				defer func() { _ = recover() }()
 				defer func() {
 					n := inflight.Add(-1)
 					if n == 0 && state.Load() == tcpStateActive {
@@ -644,12 +652,12 @@ func (srv *Server) serveTCPConn(wg *sync.WaitGroup, rw net.Conn) {
 					}
 					if w.closed.Load() {
 						state.Store(tcpStateDraining)
-						rw.SetReadDeadline(time.Now()) // unblock reader
+						_ = rw.SetReadDeadline(time.Now()) // best-effort: unblock reader
 					}
 					if w.hijacked.Load() {
 						connHijacked.Store(true)
 						state.Store(tcpStateDraining)
-						rw.SetReadDeadline(time.Now()) // unblock reader
+						_ = rw.SetReadDeadline(time.Now()) // best-effort: unblock reader
 					}
 				}()
 
@@ -705,7 +713,7 @@ func (srv *Server) serveTCPConn(wg *sync.WaitGroup, rw net.Conn) {
 	state.Store(tcpStateClosed)
 
 	if !connHijacked.Load() {
-		rw.Close()
+		_ = rw.Close() // best-effort: connection cleanup
 	}
 
 	srv.lock.Lock()
@@ -758,11 +766,12 @@ func (srv *Server) serveDNS(m []byte, w *response) {
 		// Are we allowed to delete any OPT records here?
 		req.Ns, req.Answer, req.Extra = nil, nil, nil
 
-		w.WriteMsg(req)
+		_ = w.WriteMsg(req) // client may have disconnected
 		fallthrough
 	case MsgIgnore:
 		if w.udp != nil && cap(m) == srv.UDPSize {
-			srv.udpPool.Put(m[:srv.UDPSize])
+			b := m[:srv.UDPSize]
+			srv.udpPool.Put(&b)
 		}
 
 		return
@@ -778,7 +787,8 @@ func (srv *Server) serveDNS(m []byte, w *response) {
 	}
 
 	if w.udp != nil && cap(m) == srv.UDPSize {
-		srv.udpPool.Put(m[:srv.UDPSize])
+		b := m[:srv.UDPSize]
+		srv.udpPool.Put(&b)
 	}
 
 	srv.Handler.ServeDNS(w, req) // Writes back to the client
@@ -791,7 +801,7 @@ func (srv *Server) readTCP(conn net.Conn, timeout time.Duration) ([]byte, error)
 	// ShutdownContext.
 	srv.lock.RLock()
 	if srv.started {
-		conn.SetReadDeadline(time.Now().Add(timeout))
+		_ = conn.SetReadDeadline(time.Now().Add(timeout)) // best-effort: deadline
 	}
 	srv.lock.RUnlock()
 
@@ -812,14 +822,15 @@ func (srv *Server) readUDP(conn *net.UDPConn, timeout time.Duration) ([]byte, *S
 	srv.lock.RLock()
 	if srv.started {
 		// See the comment in readTCP above.
-		conn.SetReadDeadline(time.Now().Add(timeout))
+		_ = conn.SetReadDeadline(time.Now().Add(timeout)) // best-effort: deadline
 	}
 	srv.lock.RUnlock()
 
-	m := srv.udpPool.Get().([]byte)
+	mp := srv.udpPool.Get().(*[]byte)
+	m := *mp
 	n, s, err := ReadFromSessionUDP(conn, m)
 	if err != nil {
-		srv.udpPool.Put(m)
+		srv.udpPool.Put(mp)
 		return nil, nil, err
 	}
 	m = m[:n]
@@ -830,14 +841,15 @@ func (srv *Server) readPacketConn(conn net.PacketConn, timeout time.Duration) ([
 	srv.lock.RLock()
 	if srv.started {
 		// See the comment in readTCP above.
-		conn.SetReadDeadline(time.Now().Add(timeout))
+		_ = conn.SetReadDeadline(time.Now().Add(timeout)) // best-effort: deadline
 	}
 	srv.lock.RUnlock()
 
-	m := srv.udpPool.Get().([]byte)
+	mp := srv.udpPool.Get().(*[]byte)
+	m := *mp
 	n, addr, err := conn.ReadFrom(m)
 	if err != nil {
-		srv.udpPool.Put(m)
+		srv.udpPool.Put(mp)
 		return nil, nil, err
 	}
 	m = m[:n]

@@ -48,7 +48,7 @@ func (k *DNSKEY) Generate(bits int) (crypto.PrivateKey, error) {
 		if err != nil {
 			return nil, err
 		}
-		k.setPublicKeyRSA(priv.PublicKey.E, priv.PublicKey.N)
+		k.setPublicKeyRSA(priv.E, priv.N)
 		return priv, nil
 	case ECDSAP256SHA256, ECDSAP384SHA384:
 		var c elliptic.Curve
@@ -62,7 +62,7 @@ func (k *DNSKEY) Generate(bits int) (crypto.PrivateKey, error) {
 		if err != nil {
 			return nil, err
 		}
-		k.setPublicKeyECDSA(priv.PublicKey.X, priv.PublicKey.Y)
+		k.setPublicKeyECDSA(&priv.PublicKey)
 		return priv, nil
 	case ED25519:
 		pub, priv, err := ed25519.GenerateKey(rand.Reader)
@@ -88,18 +88,16 @@ func (k *DNSKEY) setPublicKeyRSA(_E int, _N *big.Int) bool {
 }
 
 // Set the public key for Elliptic Curves
-func (k *DNSKEY) setPublicKeyECDSA(_X, _Y *big.Int) bool {
-	if _X == nil || _Y == nil {
+func (k *DNSKEY) setPublicKeyECDSA(pub *ecdsa.PublicKey) bool {
+	if pub == nil {
 		return false
 	}
-	var intlen int
-	switch k.Algorithm {
-	case ECDSAP256SHA256:
-		intlen = 32
-	case ECDSAP384SHA384:
-		intlen = 48
+	// SEC1 uncompressed form: 0x04 || X || Y. DNSKEY stores X || Y.
+	uncompressed, err := pub.Bytes()
+	if err != nil || len(uncompressed) < 1 || uncompressed[0] != 0x04 {
+		return false
 	}
-	k.PublicKey = toBase64(curveToBuf(_X, _Y, intlen))
+	k.PublicKey = toBase64(uncompressed[1:])
 	return true
 }
 
@@ -127,13 +125,5 @@ func exponentToBuf(_E int) []byte {
 		buf[2] = uint8(len(i))
 	}
 	buf = append(buf, i...)
-	return buf
-}
-
-// Set the public key for X and Y for Curve. The two
-// values are just concatenated.
-func curveToBuf(_X, _Y *big.Int, intlen int) []byte {
-	buf := intToBytes(_X, intlen)
-	buf = append(buf, intToBytes(_Y, intlen)...)
 	return buf
 }

@@ -32,7 +32,7 @@ func TestSetUDPSocketOptions(t *testing.T) {
 		ch := make(chan *SessionUDP)
 		go func() {
 			// Set some deadline so this goroutine doesn't hang forever
-			c.SetReadDeadline(time.Now().Add(time.Minute))
+			_ = c.SetReadDeadline(time.Now().Add(time.Minute)) // best-effort: deadline
 			b := make([]byte, 1)
 			_, sess, err := ReadFromSessionUDP(c, b)
 			if err != nil {

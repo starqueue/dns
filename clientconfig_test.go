@@ -75,7 +75,7 @@ func TestClientConfigFromReaderAttempts(t *testing.T) {
 
 	for _, test := range testCases {
 		test := test
-		t.Run(strings.Replace(test.data, ":", " ", -1), func(t *testing.T) {
+		t.Run(strings.ReplaceAll(test.data, ":", " "), func(t *testing.T) {
 			t.Parallel()
 
 			cc, err := ClientConfigFromReader(strings.NewReader(test.data))

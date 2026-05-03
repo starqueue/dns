@@ -84,7 +84,7 @@ func TestGenerateIncludeDepth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("could not create tmpfile for test: %v", err)
 	}
-	defer os.Remove(tmpfile.Name())
+	defer func() { _ = os.Remove(tmpfile.Name()) }() // test cleanup: remove error not relevant
 
 	zone := `@ IN SOA ns.test. hostmaster.test. ( 1 8h 2h 7d 1d )
 $GENERATE 0-1 $$INCLUDE ` + tmpfile.Name() + `

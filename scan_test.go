@@ -55,7 +55,7 @@ func TestZoneParserInclude(t *testing.T) {
 	if err != nil {
 		t.Fatalf("could not create tmpfile for test: %s", err)
 	}
-	defer os.Remove(tmpfile.Name())
+	defer func() { _ = os.Remove(tmpfile.Name()) }() // test cleanup: remove error not relevant
 
 	if _, err := tmpfile.WriteString("foo\tIN\tA\t127.0.0.1"); err != nil {
 		t.Fatalf("unable to write content to tmpfile %q: %s", tmpfile.Name(), err)
@@ -85,7 +85,9 @@ func TestZoneParserInclude(t *testing.T) {
 		t.Errorf("failed to parse zone after include, expected %d records, got %d", expected, got)
 	}
 
-	os.Remove(tmpfile.Name())
+	if err := os.Remove(tmpfile.Name()); err != nil {
+		t.Fatal(err)
+	}
 
 	z = NewZoneParser(strings.NewReader(zone), "", "")
 	z.SetIncludeAllowed(true)
@@ -176,7 +178,7 @@ func TestZoneParserIncludeDisallowed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("could not create tmpfile for test: %s", err)
 	}
-	defer os.Remove(tmpfile.Name())
+	defer func() { _ = os.Remove(tmpfile.Name()) }() // test cleanup: remove error not relevant
 
 	if _, err := tmpfile.WriteString("foo\tIN\tA\t127.0.0.1"); err != nil {
 		t.Fatalf("unable to write content to tmpfile %q: %s", tmpfile.Name(), err)

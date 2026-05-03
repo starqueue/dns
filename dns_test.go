@@ -143,13 +143,17 @@ func TestPackNAPTR(t *testing.T) {
 func TestToRFC3597(t *testing.T) {
 	a := testRR("miek.nl. IN A 10.0.1.1")
 	x := new(RFC3597)
-	x.ToRFC3597(a)
+	if err := x.ToRFC3597(a); err != nil {
+		t.Fatal(err)
+	}
 	if x.String() != `miek.nl.	3600	CLASS1	TYPE1	\# 4 0a000101` {
 		t.Errorf("string mismatch, got: %s", x)
 	}
 
 	b := testRR("miek.nl. IN MX 10 mx.miek.nl.")
-	x.ToRFC3597(b)
+	if err := x.ToRFC3597(b); err != nil {
+		t.Fatal(err)
+	}
 	if x.String() != `miek.nl.	3600	CLASS1	TYPE15	\# 14 000a026d78046d69656b026e6c00` {
 		t.Errorf("string mismatch, got: %s", x)
 	}

@@ -5,6 +5,7 @@ import (
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/elliptic"
 	"crypto/rsa"
 	"io"
 	"math/big"
@@ -55,7 +56,14 @@ func (k *DNSKEY) ReadPrivateKey(q io.Reader, file string) (crypto.PrivateKey, er
 		priv.PublicKey = *pub
 		return priv, nil
 	case ECDSAP256SHA256, ECDSAP384SHA384:
-		priv, err := readPrivateKeyECDSA(m)
+		var curve elliptic.Curve
+		switch uint8(algo) {
+		case ECDSAP256SHA256:
+			curve = elliptic.P256()
+		case ECDSAP384SHA384:
+			curve = elliptic.P384()
+		}
+		priv, err := readPrivateKeyECDSA(m, curve)
 		if err != nil {
 			return nil, err
 		}
@@ -85,10 +93,10 @@ func readPrivateKeyRSA(m map[string]string) (*rsa.PrivateKey, error) {
 			}
 			switch k {
 			case "modulus":
-				p.PublicKey.N = new(big.Int).SetBytes(v1)
+				p.N = new(big.Int).SetBytes(v1)
 			case "publicexponent":
 				i := new(big.Int).SetBytes(v1)
-				p.PublicKey.E = int(i.Int64()) // int64 should be large enough
+				p.E = int(i.Int64()) // int64 should be large enough
 			case "privateexponent":
 				p.D = new(big.Int).SetBytes(v1)
 			case "prime1":
@@ -105,9 +113,8 @@ func readPrivateKeyRSA(m map[string]string) (*rsa.PrivateKey, error) {
 	return p, nil
 }
 
-func readPrivateKeyECDSA(m map[string]string) (*ecdsa.PrivateKey, error) {
-	p := new(ecdsa.PrivateKey)
-	p.D = new(big.Int)
+func readPrivateKeyECDSA(m map[string]string, curve elliptic.Curve) (*ecdsa.PrivateKey, error) {
+	var raw []byte
 	// TODO: validate that the required flags are present
 	for k, v := range m {
 		switch k {
@@ -116,12 +123,23 @@ func readPrivateKeyECDSA(m map[string]string) (*ecdsa.PrivateKey, error) {
 			if err != nil {
 				return nil, err
 			}
-			p.D.SetBytes(v1)
+			raw = v1
 		case "created", "publish", "activate":
 			/* not used in Go (yet) */
 		}
 	}
-	return p, nil
+	if raw == nil {
+		return new(ecdsa.PrivateKey), nil
+	}
+	// ParseRawPrivateKey expects fixed-length big-endian bytes for the curve.
+	bitSize := curve.Params().BitSize
+	byteLen := (bitSize + 7) / 8
+	if len(raw) < byteLen {
+		padded := make([]byte, byteLen)
+		copy(padded[byteLen-len(raw):], raw)
+		raw = padded
+	}
+	return ecdsa.ParseRawPrivateKey(curve, raw)
 }
 
 func readPrivateKeyED25519(m map[string]string) (ed25519.PrivateKey, error) {

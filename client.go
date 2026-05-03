@@ -172,7 +172,7 @@ func (c *Client) Exchange(m *Msg, address string) (r *Msg, rtt time.Duration, er
 	if err != nil {
 		return nil, 0, err
 	}
-	defer co.Close()
+	defer func() { _ = co.Close() }() // best-effort: connection cleanup
 	return c.ExchangeWithConn(m, co)
 }
 
@@ -218,8 +218,8 @@ func (c *Client) ExchangeWithConnContext(ctx context.Context, m *Msg, co *Conn) 
 			readDeadline = deadline
 		}
 	}
-	co.SetWriteDeadline(writeDeadline)
-	co.SetReadDeadline(readDeadline)
+	_ = co.SetWriteDeadline(writeDeadline) // best-effort: deadline
+	_ = co.SetReadDeadline(readDeadline)   // best-effort: deadline
 
 	co.TsigSecret, co.TsigProvider = c.TsigSecret, c.TsigProvider
 
@@ -463,7 +463,7 @@ func (c *Client) ExchangeContext(ctx context.Context, m *Msg, a string) (r *Msg,
 	if err != nil {
 		return nil, 0, err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }() // best-effort: connection cleanup
 
 	return c.ExchangeWithConnContext(ctx, m, conn)
 }

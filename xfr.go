@@ -90,7 +90,7 @@ func (t *Transfer) inAxfr(q *Msg, c chan *Envelope) {
 		// First close the connection, then the channel. This allows functions blocked on
 		// the channel to assume that the connection is closed and no further operations are
 		// pending when they resume.
-		t.Close()
+		_ = t.Close() // best-effort: connection cleanup
 		close(c)
 	}()
 	timeout := dnsTimeout
@@ -98,7 +98,7 @@ func (t *Transfer) inAxfr(q *Msg, c chan *Envelope) {
 		timeout = t.ReadTimeout
 	}
 	for {
-		t.Conn.SetReadDeadline(time.Now().Add(timeout))
+		_ = t.SetReadDeadline(time.Now().Add(timeout)) // best-effort: deadline
 		in, err := t.ReadMsg()
 		if err != nil {
 			c <- &Envelope{nil, err}
@@ -146,7 +146,7 @@ func (t *Transfer) inIxfr(q *Msg, c chan *Envelope) {
 		// First close the connection, then the channel. This allows functions blocked on
 		// the channel to assume that the connection is closed and no further operations are
 		// pending when they resume.
-		t.Close()
+		_ = t.Close() // best-effort: connection cleanup
 		close(c)
 	}()
 	timeout := dnsTimeout
@@ -154,7 +154,7 @@ func (t *Transfer) inIxfr(q *Msg, c chan *Envelope) {
 		timeout = t.ReadTimeout
 	}
 	for {
-		t.SetReadDeadline(time.Now().Add(timeout))
+		_ = t.SetReadDeadline(time.Now().Add(timeout)) // best-effort: deadline
 		in, err := t.ReadMsg()
 		if err != nil {
 			c <- &Envelope{nil, err}

@@ -19,7 +19,7 @@ func InvalidXfrServer(w ResponseWriter, req *Msg) {
 	ch := make(chan *Envelope)
 	tr := new(Transfer)
 
-	go tr.Out(w, req, ch)
+	go func() { _ = tr.Out(w, req, ch) }() // test goroutine: error not relevant
 	ch <- &Envelope{RR: []RR{}}
 	close(ch)
 	w.Hijack()
@@ -29,7 +29,7 @@ func SingleEnvelopeXfrServer(w ResponseWriter, req *Msg) {
 	ch := make(chan *Envelope)
 	tr := new(Transfer)
 
-	go tr.Out(w, req, ch)
+	go func() { _ = tr.Out(w, req, ch) }() // test goroutine: error not relevant
 	ch <- &Envelope{RR: xfrTestData}
 	close(ch)
 	w.Hijack()
@@ -39,7 +39,7 @@ func MultipleEnvelopeXfrServer(w ResponseWriter, req *Msg) {
 	ch := make(chan *Envelope)
 	tr := new(Transfer)
 
-	go tr.Out(w, req, ch)
+	go func() { _ = tr.Out(w, req, ch) }() // test goroutine: error not relevant
 
 	for _, rr := range xfrTestData {
 		ch <- &Envelope{RR: []RR{rr}}
@@ -56,7 +56,7 @@ func TestInvalidXfr(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to run test server: %s", err)
 	}
-	defer s.Shutdown()
+	defer func() { _ = s.Shutdown() }() // test cleanup: shutdown error not relevant
 
 	tr := new(Transfer)
 	m := new(Msg)
@@ -84,7 +84,7 @@ func TestSingleEnvelopeXfr(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to run test server: %s", err)
 	}
-	defer s.Shutdown()
+	defer func() { _ = s.Shutdown() }() // test cleanup: shutdown error not relevant
 
 	axfrTestingSuite(t, addrstr)
 }
@@ -105,7 +105,7 @@ func TestSingleEnvelopeXfrTLS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to run test server: %s", err)
 	}
-	defer s.Shutdown()
+	defer func() { _ = s.Shutdown() }() // test cleanup: shutdown error not relevant
 
 	axfrTestingSuiteTLS(t, addrstr)
 }
@@ -120,7 +120,7 @@ func TestMultiEnvelopeXfr(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to run test server: %s", err)
 	}
-	defer s.Shutdown()
+	defer func() { _ = s.Shutdown() }() // test cleanup: shutdown error not relevant
 
 	axfrTestingSuite(t, addrstr)
 }
@@ -255,7 +255,7 @@ func TestCustomTsigProvider(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to run test server: %s", err)
 	}
-	defer s.Shutdown()
+	defer func() { _ = s.Shutdown() }() // test cleanup: shutdown error not relevant
 
 	axfrTestingSuiteWithCustomTsig(t, addrstr, tsigSecretProvider(tsigSecret))
 }
@@ -268,7 +268,7 @@ func TestTSIGNotSigned(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to run test server: %s", err)
 	}
-	defer s.Shutdown()
+	defer func() { _ = s.Shutdown() }() // test cleanup: shutdown error not relevant
 
 	axfrTestingSuiteWithMsgNotSigned(t, addrstr, tsigSecretProvider(tsigSecret))
 }

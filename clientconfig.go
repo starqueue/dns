@@ -25,7 +25,7 @@ func ClientConfigFromFile(resolvconf string) (*ClientConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }() // read-only: close error is irrelevant
 	return ClientConfigFromReader(file)
 }
 

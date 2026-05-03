@@ -19,12 +19,12 @@ func TestIsPacketConn(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unable to run test server: %v", err)
 		}
-		defer s.Shutdown()
+		defer func() { _ = s.Shutdown() }() // test cleanup: shutdown error not relevant
 		c, err := net.Dial("udp", addrstr)
 		if err != nil {
 			t.Fatalf("failed to dial: %v", err)
 		}
-		defer c.Close()
+		defer func() { _ = c.Close() }() // test cleanup: close error not relevant
 		if !isPacketConn(c) {
 			t.Error("UDP connection should be a packet conn")
 		}
@@ -38,12 +38,12 @@ func TestIsPacketConn(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unable to run test server: %v", err)
 		}
-		defer s.Shutdown()
+		defer func() { _ = s.Shutdown() }() // test cleanup: shutdown error not relevant
 		c, err := net.Dial("tcp", addrstr)
 		if err != nil {
 			t.Fatalf("failed to dial: %v", err)
 		}
-		defer c.Close()
+		defer func() { _ = c.Close() }() // test cleanup: close error not relevant
 		if isPacketConn(c) {
 			t.Error("TCP connection should not be a packet conn")
 		}
@@ -57,12 +57,12 @@ func TestIsPacketConn(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unable to run test server: %v", err)
 		}
-		defer s.Shutdown()
+		defer func() { _ = s.Shutdown() }() // test cleanup: shutdown error not relevant
 		c, err := net.Dial("unixgram", addrstr)
 		if err != nil {
 			t.Fatalf("failed to dial: %v", err)
 		}
-		defer c.Close()
+		defer func() { _ = c.Close() }() // test cleanup: close error not relevant
 		if !isPacketConn(c) {
 			t.Error("Unix datagram connection should be a packet conn")
 		}
@@ -87,7 +87,7 @@ func TestIsPacketConn(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to dial: %v", err)
 		}
-		defer c.Close()
+		defer func() { _ = c.Close() }() // test cleanup: close error not relevant
 		if !isPacketConn(c) {
 			t.Error("Unix datagram connection should be a packet conn")
 		}
@@ -101,12 +101,12 @@ func TestIsPacketConn(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unable to run test server: %v", err)
 		}
-		defer s.Shutdown()
+		defer func() { _ = s.Shutdown() }() // test cleanup: shutdown error not relevant
 		c, err := net.Dial("unix", addrstr)
 		if err != nil {
 			t.Fatalf("failed to dial: %v", err)
 		}
-		defer c.Close()
+		defer func() { _ = c.Close() }() // test cleanup: close error not relevant
 		if isPacketConn(c) {
 			t.Error("Unix stream connection should not be a packet conn")
 		}
@@ -124,7 +124,7 @@ func TestDialUDP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to run test server: %v", err)
 	}
-	defer s.Shutdown()
+	defer func() { _ = s.Shutdown() }() // test cleanup: shutdown error not relevant
 
 	m := new(Msg)
 	m.SetQuestion("miek.nl.", TypeSOA)
@@ -147,7 +147,7 @@ func TestClientSync(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to run test server: %v", err)
 	}
-	defer s.Shutdown()
+	defer func() { _ = s.Shutdown() }() // test cleanup: shutdown error not relevant
 
 	m := new(Msg)
 	m.SetQuestion("miek.nl.", TypeSOA)
@@ -181,7 +181,7 @@ func TestClientLocalAddress(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to run test server: %v", err)
 	}
-	defer s.Shutdown()
+	defer func() { _ = s.Shutdown() }() // test cleanup: shutdown error not relevant
 
 	m := new(Msg)
 	m.SetQuestion("miek.nl.", TypeSOA)
@@ -225,7 +225,7 @@ func TestClientTLSSyncV4(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to run test server: %v", err)
 	}
-	defer s.Shutdown()
+	defer func() { _ = s.Shutdown() }() // test cleanup: shutdown error not relevant
 
 	m := new(Msg)
 	m.SetQuestion("miek.nl.", TypeSOA)
@@ -281,7 +281,7 @@ func TestClientSyncBadID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to run test server: %v", err)
 	}
-	defer s.Shutdown()
+	defer func() { _ = s.Shutdown() }() // test cleanup: shutdown error not relevant
 
 	m := new(Msg)
 	m.SetQuestion("miek.nl.", TypeSOA)
@@ -304,7 +304,7 @@ func TestClientSyncBadThenGoodID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to run test server: %v", err)
 	}
-	defer s.Shutdown()
+	defer func() { _ = s.Shutdown() }() // test cleanup: shutdown error not relevant
 
 	m := new(Msg)
 	m.SetQuestion("miek.nl.", TypeSOA)
@@ -327,7 +327,7 @@ func TestClientSyncTCPBadID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to run test server: %v", err)
 	}
-	defer s.Shutdown()
+	defer func() { _ = s.Shutdown() }() // test cleanup: shutdown error not relevant
 
 	m := new(Msg)
 	m.SetQuestion("miek.nl.", TypeSOA)
@@ -348,7 +348,7 @@ func TestClientEDNS0(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to run test server: %v", err)
 	}
-	defer s.Shutdown()
+	defer func() { _ = s.Shutdown() }() // test cleanup: shutdown error not relevant
 
 	m := new(Msg)
 	m.SetQuestion("miek.nl.", TypeDNSKEY)
@@ -385,7 +385,7 @@ func TestClientEDNS0Local(t *testing.T) {
 			m.Extra = append(m.Extra, req.Extra[0])
 		}
 
-		w.WriteMsg(m)
+		_ = w.WriteMsg(m) // client may have disconnected
 	}
 
 	HandleFunc("miek.nl.", handler)
@@ -395,7 +395,7 @@ func TestClientEDNS0Local(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to run test server: %s", err)
 	}
-	defer s.Shutdown()
+	defer func() { _ = s.Shutdown() }() // test cleanup: shutdown error not relevant
 
 	m := new(Msg)
 	m.SetQuestion("miek.nl.", TypeTXT)
@@ -445,7 +445,7 @@ func TestClientConn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to run test server: %v", err)
 	}
-	defer s.Shutdown()
+	defer func() { _ = s.Shutdown() }() // test cleanup: shutdown error not relevant
 
 	m := new(Msg)
 	m.SetQuestion("miek.nl.", TypeSOA)
@@ -649,7 +649,7 @@ func TestTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to run test server: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }() // test cleanup: close error not relevant
 	addrstr := conn.LocalAddr().String()
 
 	// Message to send
@@ -694,7 +694,7 @@ func TestExchangeWithConn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to run test server: %v", err)
 	}
-	defer s.Shutdown()
+	defer func() { _ = s.Shutdown() }() // test cleanup: shutdown error not relevant
 
 	m := new(Msg)
 	m.SetQuestion("miek.nl.", TypeSOA)

@@ -44,7 +44,9 @@ func TestPackNoSideEffect(t *testing.T) {
 	a.Extra = append(a.Extra, o)
 	a.SetRcode(m, RcodeBadVers)
 
-	a.Pack()
+	if _, err := a.Pack(); err != nil {
+		t.Fatal(err)
+	}
 	if a.Rcode != RcodeBadVers {
 		t.Errorf("after pack: Rcode is expected to be BADVERS")
 	}
@@ -77,7 +79,9 @@ func TestPackExtendedBadCookie(t *testing.T) {
 		t.Errorf("ExtendedRcode is expected to not be BADCOOKIE before Pack")
 	}
 
-	a.Pack()
+	if _, err := a.Pack(); err != nil {
+		t.Fatal(err)
+	}
 
 	edns0 = a.IsEdns0()
 	if edns0 == nil {
@@ -145,7 +149,7 @@ func TestUnpackDomainName(t *testing.T) {
 			maxUnprintableLabel + ".",
 			""},
 		{"long domain",
-			"5" + strings.Replace(longDomain, ".", "1", -1) + "\x00",
+			"5" + strings.ReplaceAll(longDomain, ".", "1") + "\x00",
 			longDomain + ".",
 			""},
 		{"compression pointer",
@@ -154,7 +158,7 @@ func TestUnpackDomainName(t *testing.T) {
 			"foo.\\003com\\000.example.com.",
 			""},
 		{"too long domain",
-			"6" + "x" + strings.Replace(longDomain, ".", "1", -1) + "\x00",
+			"6" + "x" + strings.ReplaceAll(longDomain, ".", "1") + "\x00",
 			"",
 			ErrLongDomain.Error()},
 		{"too long by pointer",

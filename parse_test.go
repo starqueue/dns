@@ -17,7 +17,9 @@ import (
 
 func TestDotInName(t *testing.T) {
 	buf := make([]byte, 20)
-	PackDomainName("aa\\.bb.nl.", buf, 0, nil, false)
+	if _, err := PackDomainName("aa\\.bb.nl.", buf, 0, nil, false); err != nil {
+		t.Fatal(err)
+	}
 	// index 3 must be a real dot
 	if buf[3] != '.' {
 		t.Error("dot should be a real dot")
@@ -1174,7 +1176,9 @@ func TestDigit(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to parse %v", err)
 		}
-		PackRR(r, buf, 0, nil, false)
+		if _, err := PackRR(r, buf, 0, nil, false); err != nil {
+			t.Fatal(err)
+		}
 		if buf[5] != i {
 			t.Fatalf("5 pos must be %d, is %d", i, buf[5])
 		}
@@ -1234,7 +1238,7 @@ func TestMalformedPackets(t *testing.T) {
 	for _, packet := range packets {
 		data, _ := hex.DecodeString(packet)
 		var msg Msg
-		msg.Unpack(data)
+		_ = msg.Unpack(data) // test feeds invalid messages: errors are expected
 	}
 }
 

@@ -447,7 +447,7 @@ Activate: 20110302104537`
 	}
 	switch priv := p.(type) {
 	case *rsa.PrivateKey:
-		if priv.PublicKey.E != 65537 {
+		if priv.E != 65537 {
 			t.Error("exponenent should be 65537")
 		}
 	default:
@@ -475,7 +475,9 @@ Activate: 20110302104537`
 	sig.SignerName = k.Hdr.Name
 	sig.Algorithm = k.Algorithm
 
-	sig.Sign(p.(*rsa.PrivateKey), []RR{soa})
+	if err := sig.Sign(p.(*rsa.PrivateKey), []RR{soa}); err != nil {
+		t.Fatal(err)
+	}
 	if sig.Signature != "D5zsobpQcmMmYsUMLxCVEtgAdCvTu8V/IEeP4EyLBjqPJmjt96bwM9kqihsccofA5LIJ7DN91qkCORjWSTwNhzCv7bMyr2o5vBZElrlpnRzlvsFIoAZCD9xg6ZY7ZyzUJmU6IcTwG4v3xEYajcpbJJiyaw/RqR90MuRdKPiBzSo=" {
 		t.Errorf("signature is not correct: %v", sig)
 	}

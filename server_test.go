@@ -23,7 +23,7 @@ func HelloServer(w ResponseWriter, req *Msg) {
 
 	m.Extra = make([]RR, 1)
 	m.Extra[0] = &TXT{Hdr: RR_Header{Name: m.Question[0].Name, Rrtype: TypeTXT, Class: ClassINET, Ttl: 0}, Txt: []string{"Hello world"}}
-	w.WriteMsg(m)
+	_ = w.WriteMsg(m) // client may have disconnected
 }
 
 func HelloServerBadID(w ResponseWriter, req *Msg) {
@@ -33,7 +33,7 @@ func HelloServerBadID(w ResponseWriter, req *Msg) {
 
 	m.Extra = make([]RR, 1)
 	m.Extra[0] = &TXT{Hdr: RR_Header{Name: m.Question[0].Name, Rrtype: TypeTXT, Class: ClassINET, Ttl: 0}, Txt: []string{"Hello world"}}
-	w.WriteMsg(m)
+	_ = w.WriteMsg(m) // client may have disconnected
 }
 
 func HelloServerBadThenGoodID(w ResponseWriter, req *Msg) {
@@ -43,10 +43,10 @@ func HelloServerBadThenGoodID(w ResponseWriter, req *Msg) {
 
 	m.Extra = make([]RR, 1)
 	m.Extra[0] = &TXT{Hdr: RR_Header{Name: m.Question[0].Name, Rrtype: TypeTXT, Class: ClassINET, Ttl: 0}, Txt: []string{"Hello world"}}
-	w.WriteMsg(m)
+	_ = w.WriteMsg(m) // client may have disconnected
 
 	m.Id--
-	w.WriteMsg(m)
+	_ = w.WriteMsg(m) // client may have disconnected
 }
 
 func HelloServerEchoAddrPort(w ResponseWriter, req *Msg) {
@@ -56,7 +56,7 @@ func HelloServerEchoAddrPort(w ResponseWriter, req *Msg) {
 	remoteAddr := w.RemoteAddr().String()
 	m.Extra = make([]RR, 1)
 	m.Extra[0] = &TXT{Hdr: RR_Header{Name: m.Question[0].Name, Rrtype: TypeTXT, Class: ClassINET, Ttl: 0}, Txt: []string{remoteAddr}}
-	w.WriteMsg(m)
+	_ = w.WriteMsg(m) // client may have disconnected
 }
 
 func AnotherHelloServer(w ResponseWriter, req *Msg) {
@@ -65,7 +65,7 @@ func AnotherHelloServer(w ResponseWriter, req *Msg) {
 
 	m.Extra = make([]RR, 1)
 	m.Extra[0] = &TXT{Hdr: RR_Header{Name: m.Question[0].Name, Rrtype: TypeTXT, Class: ClassINET, Ttl: 0}, Txt: []string{"Hello example"}}
-	w.WriteMsg(m)
+	_ = w.WriteMsg(m) // client may have disconnected
 }
 
 func RunLocalServer(pc net.PacketConn, l net.Listener, opts ...func(*Server)) (*Server, string, chan error, error) {
@@ -104,7 +104,7 @@ func RunLocalServer(pc net.PacketConn, l net.Listener, opts ...func(*Server)) (*
 
 	go func() {
 		fin <- server.ActivateAndServe()
-		closer.Close()
+		_ = closer.Close() // test cleanup: close error not relevant
 	}()
 
 	waitLock.Lock()
@@ -168,7 +168,7 @@ func RunLocalUnixSeqPacketServer(laddr string) (chan interface{}, string, error)
 
 	shutdownChan := make(chan interface{})
 	go func() {
-		pc.Accept()
+		_, _ = pc.Accept() // test stub: accept error is irrelevant
 		<-shutdownChan
 	}()
 
@@ -195,7 +195,7 @@ func TestServing(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unable to run test server: %v", err)
 			}
-			defer s.Shutdown()
+			defer func() { _ = s.Shutdown() }() // test cleanup: shutdown error not relevant
 
 			c := &Client{
 				Net: tc.network,
@@ -243,7 +243,7 @@ func TestServeIgnoresZFlag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to run test server: %v", err)
 	}
-	defer s.Shutdown()
+	defer func() { _ = s.Shutdown() }() // test cleanup: shutdown error not relevant
 
 	c := new(Client)
 	m := new(Msg)
@@ -272,7 +272,7 @@ func TestServeNotImplemented(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to run test server: %v", err)
 	}
-	defer s.Shutdown()
+	defer func() { _ = s.Shutdown() }() // test cleanup: shutdown error not relevant
 
 	c := new(Client)
 	m := new(Msg)
@@ -311,7 +311,7 @@ func TestServingTLS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to run test server: %v", err)
 	}
-	defer s.Shutdown()
+	defer func() { _ = s.Shutdown() }() // test cleanup: shutdown error not relevant
 
 	c := new(Client)
 	c.Net = "tcp-tls"
@@ -374,7 +374,7 @@ func TestServingTLSConnectionState(t *testing.T) {
 			}
 			m.Extra = make([]RR, 1)
 			m.Extra[0] = &TXT{Hdr: RR_Header{Name: m.Question[0].Name, Rrtype: TypeTXT, Class: ClassINET, Ttl: 0}, Txt: []string{handlerResponse}}
-			w.WriteMsg(m)
+			_ = w.WriteMsg(m) // client may have disconnected
 		}
 	}
 
@@ -397,7 +397,7 @@ func TestServingTLSConnectionState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to run test server: %v", err)
 	}
-	defer s.Shutdown()
+	defer func() { _ = s.Shutdown() }() // test cleanup: shutdown error not relevant
 
 	// TLS DNS query
 	c := &Client{
@@ -420,7 +420,7 @@ func TestServingTLSConnectionState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to run test server: %v", err)
 	}
-	defer s.Shutdown()
+	defer func() { _ = s.Shutdown() }() // test cleanup: shutdown error not relevant
 
 	// UDP DNS query
 	c = new(Client)
@@ -434,7 +434,7 @@ func TestServingTLSConnectionState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to run test server: %v", err)
 	}
-	defer s.Shutdown()
+	defer func() { _ = s.Shutdown() }() // test cleanup: shutdown error not relevant
 
 	// TCP DNS query
 	c = &Client{Net: "tcp"}
@@ -453,7 +453,7 @@ func TestServingListenAndServe(t *testing.T) {
 	waitLock.Lock()
 
 	go func() {
-		server.ListenAndServe()
+		_ = server.ListenAndServe() // test goroutine: server lifecycle managed via Shutdown
 	}()
 	waitLock.Lock()
 
@@ -468,7 +468,7 @@ func TestServingListenAndServe(t *testing.T) {
 	if txt != "Hello example" {
 		t.Error("unexpected result for example.com", txt, "!= Hello example")
 	}
-	server.Shutdown()
+	_ = server.Shutdown() // test cleanup: shutdown error not relevant
 }
 
 func TestServingListenAndServeTLS(t *testing.T) {
@@ -489,7 +489,7 @@ func TestServingListenAndServeTLS(t *testing.T) {
 	waitLock.Lock()
 
 	go func() {
-		server.ListenAndServe()
+		_ = server.ListenAndServe() // test goroutine: server lifecycle managed via Shutdown
 	}()
 	waitLock.Lock()
 
@@ -505,7 +505,7 @@ func TestServingListenAndServeTLS(t *testing.T) {
 	if txt != "Hello example" {
 		t.Error("unexpected result for example.com", txt, "!= Hello example")
 	}
-	server.Shutdown()
+	_ = server.Shutdown() // test cleanup: shutdown error not relevant
 }
 
 func BenchmarkServe(b *testing.B) {
@@ -518,7 +518,7 @@ func BenchmarkServe(b *testing.B) {
 	if err != nil {
 		b.Fatalf("unable to run test server: %v", err)
 	}
-	defer s.Shutdown()
+	defer func() { _ = s.Shutdown() }() // test cleanup: shutdown error not relevant
 
 	c := new(Client)
 	m := new(Msg)
@@ -546,7 +546,7 @@ func BenchmarkServe6(b *testing.B) {
 		}
 		b.Fatalf("unable to run test server: %v", err)
 	}
-	defer s.Shutdown()
+	defer func() { _ = s.Shutdown() }() // test cleanup: shutdown error not relevant
 
 	c := new(Client)
 	m := new(Msg)
@@ -568,7 +568,7 @@ func HelloServerCompress(w ResponseWriter, req *Msg) {
 	m.Extra = make([]RR, 1)
 	m.Extra[0] = &TXT{Hdr: RR_Header{Name: m.Question[0].Name, Rrtype: TypeTXT, Class: ClassINET, Ttl: 0}, Txt: []string{"Hello world"}}
 	m.Compress = true
-	w.WriteMsg(m)
+	_ = w.WriteMsg(m) // client may have disconnected
 }
 
 func BenchmarkServeCompress(b *testing.B) {
@@ -580,7 +580,7 @@ func BenchmarkServeCompress(b *testing.B) {
 	if err != nil {
 		b.Fatalf("unable to run test server: %v", err)
 	}
-	defer s.Shutdown()
+	defer func() { _ = s.Shutdown() }() // test cleanup: shutdown error not relevant
 
 	c := new(Client)
 	m := new(Msg)
@@ -622,7 +622,7 @@ func HelloServerLargeResponse(resp ResponseWriter, req *Msg) {
 		}
 		m.Answer = append(m.Answer, aRec)
 	}
-	resp.WriteMsg(m)
+	_ = resp.WriteMsg(m) // client may have disconnected
 }
 
 func TestServingLargeResponses(t *testing.T) {
@@ -633,7 +633,7 @@ func TestServingLargeResponses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to run test server: %v", err)
 	}
-	defer s.Shutdown()
+	defer func() { _ = s.Shutdown() }() // test cleanup: shutdown error not relevant
 
 	// Create request
 	m := new(Msg)
@@ -673,7 +673,7 @@ func TestServingResponse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to run test server: %v", err)
 	}
-	defer s.Shutdown()
+	defer func() { _ = s.Shutdown() }() // test cleanup: shutdown error not relevant
 
 	c := new(Client)
 	m := new(Msg)
@@ -772,7 +772,7 @@ func checkInProgressQueriesAtShutdownServer(t *testing.T, srv *Server, addr stri
 	for _, conn := range conns {
 		conn := conn
 		eg.Go(func() error {
-			conn.SetWriteDeadline(time.Now().Add(client.Timeout))
+			_ = conn.SetWriteDeadline(time.Now().Add(client.Timeout)) // best-effort: deadline
 
 			return conn.WriteMsg(m)
 		})
@@ -793,7 +793,7 @@ func checkInProgressQueriesAtShutdownServer(t *testing.T, srv *Server, addr stri
 	for _, conn := range conns {
 		conn := conn
 		eg.Go(func() error {
-			conn.SetReadDeadline(time.Now().Add(client.Timeout))
+			_ = conn.SetReadDeadline(time.Now().Add(client.Timeout)) // best-effort: deadline
 
 			_, err := conn.ReadMsg()
 			return err
@@ -889,12 +889,12 @@ func TestHandlerCloseTCP(t *testing.T) {
 	triggered := make(chan struct{})
 	HandleFunc(hname, func(w ResponseWriter, r *Msg) {
 		close(triggered)
-		w.Close()
+		_ = w.Close() // test handler: close error not relevant
 	})
 	defer HandleRemove(hname)
 
 	go func() {
-		defer server.Shutdown()
+		defer func() { _ = server.Shutdown() }() // test cleanup: shutdown error not relevant
 		c := &Client{Net: "tcp"}
 		m := new(Msg).SetQuestion(hname, 1)
 		tries := 0
@@ -1216,7 +1216,7 @@ func TestServerReuseaddr(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unable listen tcp: %s", err)
 		}
-		defer l.Close()
+		defer func() { _ = l.Close() }() // test cleanup: close error not relevant
 		return l.Addr().(*net.TCPAddr).Port
 	}
 
@@ -1320,7 +1320,7 @@ func TestServerRoundtripTsig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to run test server: %v", err)
 	}
-	defer s.Shutdown()
+	defer func() { _ = s.Shutdown() }() // test cleanup: shutdown error not relevant
 
 	handlerFired := make(chan struct{})
 	HandleFunc("example.com.", func(w ResponseWriter, r *Msg) {
@@ -1461,11 +1461,11 @@ func ExampleDecorateWriter() {
 	waitLock := sync.Mutex{}
 	waitLock.Lock()
 	server.NotifyStartedFunc = waitLock.Unlock
-	defer server.Shutdown()
+	defer func() { _ = server.Shutdown() }() // test cleanup: shutdown error not relevant
 
 	go func() {
-		server.ActivateAndServe()
-		pc.Close()
+		_ = server.ActivateAndServe() // test goroutine: server lifecycle managed via Shutdown
+		_ = pc.Close()                // test cleanup: close error not relevant
 	}()
 
 	waitLock.Lock()

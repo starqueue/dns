@@ -12,7 +12,7 @@ func TestAcceptNotify(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to run test server: %v", err)
 	}
-	defer s.Shutdown()
+	defer func() { _ = s.Shutdown() }() // test cleanup: shutdown error not relevant
 
 	m := new(Msg)
 	m.SetNotify("example.org.")
@@ -33,7 +33,7 @@ func TestAcceptNotify(t *testing.T) {
 func handleNotify(w ResponseWriter, req *Msg) {
 	m := new(Msg)
 	m.SetReply(req)
-	w.WriteMsg(m)
+	_ = w.WriteMsg(m) // client may have disconnected
 }
 
 func TestInvalidMsg(t *testing.T) {
@@ -44,7 +44,7 @@ func TestInvalidMsg(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to run test server: %v", err)
 	}
-	defer s.Shutdown()
+	defer func() { _ = s.Shutdown() }() // test cleanup: shutdown error not relevant
 
 	s.MsgAcceptFunc = func(dh Header) MsgAcceptAction {
 		switch dh.Id {

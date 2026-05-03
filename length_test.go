@@ -189,7 +189,9 @@ func TestMsgLength2(t *testing.T) {
 		input, _ := hex.DecodeString(hexData)
 
 		m := new(Msg)
-		m.Unpack(input)
+		if err := m.Unpack(input); err != nil {
+			t.Fatal(err)
+		}
 		m.Compress = true
 		lenComp := m.Len()
 		b, _ := m.Pack()

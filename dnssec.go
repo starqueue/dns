@@ -571,23 +571,31 @@ func (k *DNSKEY) publicKeyECDSA() *ecdsa.PublicKey {
 	if err != nil {
 		return nil
 	}
-	pubkey := new(ecdsa.PublicKey)
+	var curve elliptic.Curve
 	switch k.Algorithm {
 	case ECDSAP256SHA256:
-		pubkey.Curve = elliptic.P256()
+		curve = elliptic.P256()
 		if len(keybuf) != 64 {
 			// wrongly encoded key
 			return nil
 		}
 	case ECDSAP384SHA384:
-		pubkey.Curve = elliptic.P384()
+		curve = elliptic.P384()
 		if len(keybuf) != 96 {
 			// Wrongly encoded key
 			return nil
 		}
+	default:
+		return nil
 	}
-	pubkey.X = new(big.Int).SetBytes(keybuf[:len(keybuf)/2])
-	pubkey.Y = new(big.Int).SetBytes(keybuf[len(keybuf)/2:])
+	// DNSKEY stores X||Y; SEC1 uncompressed form requires a 0x04 prefix.
+	uncompressed := make([]byte, 1+len(keybuf))
+	uncompressed[0] = 0x04
+	copy(uncompressed[1:], keybuf)
+	pubkey, err := ecdsa.ParseUncompressedPublicKey(curve, uncompressed)
+	if err != nil {
+		return nil
+	}
 	return pubkey
 }
 

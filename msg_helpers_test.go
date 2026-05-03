@@ -163,7 +163,9 @@ func BenchmarkPackDataNsec(b *testing.B) {
 		b.Run(bb.name, func(b *testing.B) {
 			buf := make([]byte, 100)
 			for n := 0; n < b.N; n++ {
-				packDataNsec(bb.types, buf, 0)
+				if _, err := packDataNsec(bb.types, buf, 0); err != nil {
+					b.Fatal(err)
+				}
 			}
 		})
 	}

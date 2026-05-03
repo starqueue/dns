@@ -896,7 +896,7 @@ func (dns *Msg) String() string {
 		return "<nil> MsgHdr"
 	}
 	s := dns.MsgHdr.String() + " "
-	if dns.MsgHdr.Opcode == OpcodeUpdate {
+	if dns.Opcode == OpcodeUpdate {
 		s += "ZONE: " + strconv.Itoa(len(dns.Question)) + ", "
 		s += "PREREQ: " + strconv.Itoa(len(dns.Answer)) + ", "
 		s += "UPDATE: " + strconv.Itoa(len(dns.Ns)) + ", "
@@ -913,7 +913,7 @@ func (dns *Msg) String() string {
 		s += opt.String() + "\n"
 	}
 	if len(dns.Question) > 0 {
-		if dns.MsgHdr.Opcode == OpcodeUpdate {
+		if dns.Opcode == OpcodeUpdate {
 			s += "\n;; ZONE SECTION:\n"
 		} else {
 			s += "\n;; QUESTION SECTION:\n"
@@ -923,7 +923,7 @@ func (dns *Msg) String() string {
 		}
 	}
 	if len(dns.Answer) > 0 {
-		if dns.MsgHdr.Opcode == OpcodeUpdate {
+		if dns.Opcode == OpcodeUpdate {
 			s += "\n;; PREREQUISITE SECTION:\n"
 		} else {
 			s += "\n;; ANSWER SECTION:\n"
@@ -935,7 +935,7 @@ func (dns *Msg) String() string {
 		}
 	}
 	if len(dns.Ns) > 0 {
-		if dns.MsgHdr.Opcode == OpcodeUpdate {
+		if dns.Opcode == OpcodeUpdate {
 			s += "\n;; UPDATE SECTION:\n"
 		} else {
 			s += "\n;; AUTHORITY SECTION:\n"

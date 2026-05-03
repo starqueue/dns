@@ -23,8 +23,8 @@ func (r *DNSKEY) PrivateKeyString(p crypto.PrivateKey) string {
 
 	switch p := p.(type) {
 	case *rsa.PrivateKey:
-		modulus := toBase64(p.PublicKey.N.Bytes())
-		e := big.NewInt(int64(p.PublicKey.E))
+		modulus := toBase64(p.N.Bytes())
+		e := big.NewInt(int64(p.E))
 		publicExponent := toBase64(e.Bytes())
 		privateExponent := toBase64(p.D.Bytes())
 		prime1 := toBase64(p.Primes[0].Bytes())
@@ -53,14 +53,12 @@ func (r *DNSKEY) PrivateKeyString(p crypto.PrivateKey) string {
 			"Coefficient: " + coefficient + "\n"
 
 	case *ecdsa.PrivateKey:
-		var intlen int
-		switch r.Algorithm {
-		case ECDSAP256SHA256:
-			intlen = 32
-		case ECDSAP384SHA384:
-			intlen = 48
+		// Bytes() returns the fixed-length raw scalar (SEC1 raw form).
+		raw, err := p.Bytes()
+		if err != nil {
+			return ""
 		}
-		private := toBase64(intToBytes(p.D, intlen))
+		private := toBase64(raw)
 		return format +
 			"Algorithm: " + algorithm + "\n" +
 			"PrivateKey: " + private + "\n"

@@ -293,7 +293,7 @@ func (zp *ZoneParser) subNext() (RR, bool) {
 
 	if zp.sub.r != nil {
 		if c, ok := zp.sub.r.(io.Closer); ok {
-			c.Close()
+			_ = c.Close() // read-only $INCLUDE: close error is irrelevant
 		}
 		zp.sub.r = nil
 	}

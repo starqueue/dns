@@ -199,8 +199,9 @@ func BenchmarkUnpackA(b *testing.B) {
 	a := &A{Hdr: RR_Header{Name: ".", Rrtype: TypeA, Class: ClassANY}, A: net.IPv4(127, 0, 0, 1)}
 
 	buf := make([]byte, Len(a))
-	PackRR(a, buf, 0, nil, false)
-	a = nil
+	if _, err := PackRR(a, buf, 0, nil, false); err != nil {
+		b.Fatal(err)
+	}
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -223,8 +224,9 @@ func BenchmarkUnpackMX(b *testing.B) {
 	m := &MX{Hdr: RR_Header{Name: ".", Rrtype: TypeA, Class: ClassANY}, Mx: "mx.miek.nl."}
 
 	buf := make([]byte, Len(m))
-	PackRR(m, buf, 0, nil, false)
-	m = nil
+	if _, err := PackRR(m, buf, 0, nil, false); err != nil {
+		b.Fatal(err)
+	}
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -247,8 +249,9 @@ func BenchmarkUnpackAAAA(b *testing.B) {
 	aaaa := testRR(". IN AAAA ::1")
 
 	buf := make([]byte, Len(aaaa))
-	PackRR(aaaa, buf, 0, nil, false)
-	aaaa = nil
+	if _, err := PackRR(aaaa, buf, 0, nil, false); err != nil {
+		b.Fatal(err)
+	}
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
